@@ -86,8 +86,16 @@ body{
 /* ---------- home ---------- */
 .brand{display:flex;align-items:baseline;justify-content:center;gap:8px;letter-spacing:.02em}
 .brand h1{font-size:clamp(34px,10vw,46px);line-height:1}
-.brand .dot{width:14px;height:14px;border-radius:50%;background:var(--berry);box-shadow:2px 3px 0 rgba(58,48,80,.16)}
-.tagline{text-align:center;color:var(--ink-soft);font-weight:500;font-size:15px;margin-top:6px}
+/* 遊びかたを伝える唯一の一文なので、読みとばされない大きさ・濃さにする */
+.tagline{
+  text-align:center;color:var(--ink);font-weight:800;
+  font-size:clamp(17px,4.6vw,20px);margin-top:clamp(22px,8vw,36px);letter-spacing:.01em;
+  line-height:1.4;
+}
+/* 狭い画面では「ゆびで うごかして／まるを あつめよう」と文節で折り返す。
+   inline-block にすると span の内側では折り返されないので、
+   「あつめよ／う」のような1文字だけ落ちる折り返しを防げる。 */
+.tagline span{display:inline-block}
 
 .stage-wrap{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;padding:10px 0}
 canvas.preview{
@@ -95,7 +103,9 @@ canvas.preview{
   border-radius:30px;box-shadow:4px 6px 0 rgba(58,48,80,.13);
   display:block;
 }
-.home-actions{display:flex;flex-direction:column;gap:12px}
+/* 画面の下端から少し浮かせる。vh 基準にすることで、
+   縦の短い端末では余白を控えめにしてキャラ絵が潰れすぎないようにする */
+.home-actions{display:flex;flex-direction:column;gap:12px;margin-bottom:clamp(8px,4.5vh,40px)}
 .top-row{display:flex;align-items:center;gap:10px;margin-bottom:6px}
 .spacer{flex:1}
 
@@ -257,8 +267,8 @@ canvas.preview{
       <span class="spacer"></span>
       <button class="btn icon-btn snd" aria-label="おと">🔊</button>
     </div>
-    <div class="brand"><h1>キャッチ！</h1><span class="dot"></span></div>
-    <p class="tagline">ゆびで うごかして まるを あつめよう</p>
+    <div class="brand"><h1>キャッチ！</h1></div>
+    <p class="tagline"><span>ゆびで うごかして</span> <span>まるを あつめよう</span></p>
     <div class="stage-wrap"><canvas class="preview" id="homeCv"></canvas></div>
     <div class="home-actions">
       <button class="btn btn-primary btn-big" id="btnPlay">あそぶ</button>
