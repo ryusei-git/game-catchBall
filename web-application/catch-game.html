@@ -46,9 +46,17 @@ body{
   display:flex;flex-direction:column;
   padding:calc(env(safe-area-inset-top) + 14px) 18px calc(env(safe-area-inset-bottom) + 16px);
   opacity:0;transform:translateY(14px) scale(.985);
-  pointer-events:none;transition:opacity .26s ease,transform .26s ease;
+  /* visibility も切る。pointer-events:none だけだと、子孫が pointer-events:auto を
+     指定した時（#btnQuit）に復活してしまい、隠れている画面のボタンが
+     手前でタップを奪う。Tab キーで隠れた画面のボタンに入るのも防げる。
+     フェードアウトを見せてから消すため、visibility だけ .26s 遅らせる。 */
+  pointer-events:none;visibility:hidden;
+  transition:opacity .26s ease,transform .26s ease,visibility 0s linear .26s;
 }
-.screen.on{opacity:1;transform:none;pointer-events:auto}
+.screen.on{
+  opacity:1;transform:none;pointer-events:auto;visibility:visible;
+  transition:opacity .26s ease,transform .26s ease,visibility 0s;
+}
 #s-game{padding:0}
 
 /* ---------- paper buttons ---------- */
@@ -469,7 +477,7 @@ const Bgm = (() => {
   const VOL   = { home: .60, play: .50 };  // SFX を埋もれさせないよう控えめに
   const FADE  = 600;                        // ms
   const cache = {};
-  let want = null, raf = 0, armed = false;
+  let want = null, raf = 0, armed = false, kickUsed = false;
 
   /* iOS Safari は ogg/vorbis が鳴らないので mp3 に落とす */
   const EXT = (() => {
@@ -491,14 +499,17 @@ const Bgm = (() => {
   function arm(){
     if(armed) return;
     armed = true;
-    const on = () => {
+    const on = ev => {
+      /* おとボタンは自前で処理する。ここで拾うと
+         「pointerdown で鳴らす → click で OFF」になり、押しても無音になる */
+      if(ev && ev.target && ev.target.closest && ev.target.closest('#btnSound')) return;
       armed = false;
       document.removeEventListener('pointerdown', on);
       document.removeEventListener('keydown', on);
       apply();
     };
-    document.addEventListener('pointerdown', on, { once:true });
-    document.addEventListener('keydown', on, { once:true });
+    document.addEventListener('pointerdown', on);
+    document.addEventListener('keydown', on);
   }
 
   function step(){
@@ -536,6 +547,20 @@ const Bgm = (() => {
     set(name){ want = name; apply(); },
     /** state.sound を切りかえた後に呼ぶ */
     refresh(){ apply(); },
+    /**
+     * 「アイコンは🔊なのに、自動再生がブロックされてまだ鳴っていない」状態を
+     * 解消する。鳴らしはじめた時だけ true を返す。
+     * これで最初の1回は OFF ではなく「鳴らす」になる。
+     * 音源が壊れていても押せなくならないよう、消費は1回だけ。
+     */
+    kick(){
+      if(kickUsed || !want) return false;
+      const a = cache[want];
+      if(a && !a.paused) return false;   // もう鳴っている
+      kickUsed = true;
+      apply();
+      return true;
+    },
     /** タブが隠れた時 */
     suspend(){ Object.keys(cache).forEach(n => cache[n].pause()); },
     wake(){ apply(); }
@@ -1304,6 +1329,8 @@ document.getElementById('btnShopBack').onclick = () => { Sfx.tap(); go('home'); 
 document.getElementById('btnQuit').onclick     = () => { Sfx.tap(); go('levels'); };
 document.getElementById('ovHome').onclick      = () => { Sfx.tap(); document.getElementById('ov').classList.remove('on'); go('home'); };
 document.getElementById('btnSound').onclick    = e => {
+  // 🔊 のまま まだ鳴っていない時は、OFF にせず「鳴らす」だけにする
+  if(state.sound && Bgm.kick()){ Sfx.tap(); return; }
   state.sound = !state.sound; save();
   e.currentTarget.textContent = state.sound ? '🔊' : '🔇';
   Bgm.refresh();
