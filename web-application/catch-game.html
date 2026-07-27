@@ -459,6 +459,90 @@ const Sfx = (() => {
 })();
 
 /* ============================================================
+   3-2. BGM（ループ）
+      ・おとボタン（state.sound）で SFX といっしょに ON/OFF
+      ・画面がかわったら ゆっくり クロスフェード
+      ・自動再生がブロックされたら、最初のタップで鳴らしはじめる
+   ============================================================ */
+const Bgm = (() => {
+  const BASE  = 'assets/bgm/';
+  const VOL   = { home: .60, play: .50 };  // SFX を埋もれさせないよう控えめに
+  const FADE  = 600;                        // ms
+  const cache = {};
+  let want = null, raf = 0, armed = false;
+
+  /* iOS Safari は ogg/vorbis が鳴らないので mp3 に落とす */
+  const EXT = (() => {
+    const a = document.createElement('audio');
+    return (a.canPlayType && a.canPlayType('audio/ogg; codecs="vorbis"')) ? '.ogg' : '.mp3';
+  })();
+
+  function el(name){
+    let a = cache[name];
+    if(!a){
+      a = new Audio(BASE + name + EXT);
+      a.loop = true; a.preload = 'auto'; a.volume = 0;
+      cache[name] = a;
+    }
+    return a;
+  }
+
+  /* 自動再生がブロックされた時：最初の操作で鳴らす */
+  function arm(){
+    if(armed) return;
+    armed = true;
+    const on = () => {
+      armed = false;
+      document.removeEventListener('pointerdown', on);
+      document.removeEventListener('keydown', on);
+      apply();
+    };
+    document.addEventListener('pointerdown', on, { once:true });
+    document.addEventListener('keydown', on, { once:true });
+  }
+
+  function step(){
+    raf = 0;
+    const d = 1 / (FADE / 16.7);
+    let busy = false;
+    Object.keys(cache).forEach(n => {
+      const a = cache[n];
+      // 再生がブロックされている間は上げない（鳴り出した瞬間に爆音、を防ぐ）
+      const target = (state.sound && n === want && !a.paused) ? (VOL[n] || .5) : 0;
+      if(Math.abs(a.volume - target) <= d){
+        a.volume = target;
+        if(target === 0 && !a.paused) a.pause();
+      } else {
+        a.volume = Math.max(0, Math.min(1, a.volume + (target > a.volume ? d : -d)));
+        busy = true;
+      }
+    });
+    if(busy) raf = requestAnimationFrame(step);
+  }
+
+  function apply(){
+    if(state.sound && want){
+      const a = el(want);
+      if(a.paused){
+        const p = a.play();
+        if(p && p.catch) p.catch(() => arm());
+      }
+    }
+    if(!raf) raf = requestAnimationFrame(step);
+  }
+
+  return {
+    /** 鳴らしたい曲を指定（'home' / 'play'） */
+    set(name){ want = name; apply(); },
+    /** state.sound を切りかえた後に呼ぶ */
+    refresh(){ apply(); },
+    /** タブが隠れた時 */
+    suspend(){ Object.keys(cache).forEach(n => cache[n].pause()); },
+    wake(){ apply(); }
+  };
+})();
+
+/* ============================================================
    4. 描画ヘルパー（「切り紙」の質感 = 少しずらした影 + フラットな面）
    ============================================================ */
 function rr(c, x, y, w, h, r){
@@ -717,6 +801,7 @@ function go(name){
   if(current === 'game' && name !== 'game') stopGame();
   Object.keys(screens).forEach(k => screens[k].classList.toggle('on', k === name));
   current = name;
+  Bgm.set(name === 'game' ? 'play' : 'home');
   if(name === 'home')   renderHome();
   if(name === 'levels') renderLevels();
   if(name === 'shop')   renderShop();
@@ -1221,6 +1306,7 @@ document.getElementById('ovHome').onclick      = () => { Sfx.tap(); document.get
 document.getElementById('btnSound').onclick    = e => {
   state.sound = !state.sound; save();
   e.currentTarget.textContent = state.sound ? '🔊' : '🔇';
+  Bgm.refresh();
   if(state.sound) Sfx.tap();
 };
 document.querySelectorAll('.tab').forEach(t => {
@@ -1233,9 +1319,14 @@ addEventListener('keydown', e => {
   if(e.key === 'Escape' && current === 'game') go('levels');
 });
 document.addEventListener('visibilitychange', () => {
-  if(document.hidden && G.on){ stopGame(); }
-  else if(!document.hidden && current === 'game' && !G.ended){
-    G.on = true; G.last = performance.now(); G.raf = requestAnimationFrame(tick);
+  if(document.hidden){
+    Bgm.suspend();
+    if(G.on) stopGame();
+  } else {
+    Bgm.wake();
+    if(current === 'game' && !G.ended){
+      G.on = true; G.last = performance.now(); G.raf = requestAnimationFrame(tick);
+    }
   }
 });
 
