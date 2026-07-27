@@ -110,8 +110,11 @@ canvas.preview{
 }
 
 /* ---------- level select ---------- */
-.head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-.head h2{font-size:clamp(24px,6.4vw,30px)}
+.head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+/* 見出しだけ縮ませる。ボタンとコインは縮めない（狭い端末でも押せる大きさを保つ） */
+.head h2{font-size:clamp(24px,6.4vw,30px);min-width:0;white-space:nowrap}
+.head .icon-btn,.head .coin-chip{flex:0 0 auto}
+.head .spacer{min-width:0}
 .grid{
   flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;
   overflow-y:auto;align-content:safe center;padding:4px 0 8px;
@@ -197,7 +200,12 @@ canvas.preview{
 .goal .gbar{flex:1;height:15px;border-radius:999px;background:rgba(58,48,80,.13);overflow:hidden}
 .goal .gbar > i{display:block;height:100%;width:0;border-radius:999px;background:var(--sun);transition:width .18s ease}
 .goal .num{font-size:17px;font-variant-numeric:tabular-nums;white-space:nowrap}
-#btnQuit{pointer-events:auto;background:rgba(255,255,255,.85);box-shadow:0 4px 0 rgba(58,48,80,.14)}
+.hud .icon-btn{background:rgba(255,255,255,.85);box-shadow:0 4px 0 rgba(58,48,80,.14)}
+/* .hud は pointer-events:none（タッチをキャンバスに通すため）なので、
+   HUD 上のボタンだけ押せるように戻す。ただし「ゲーム画面が出ている時」に限定する。
+   限定しないと、隠れているゲーム画面のボタンが最前面に居座り、
+   他画面の同じ位置のボタン（おとボタン）のタップを奪ってしまう。 */
+#s-game.on .hud .icon-btn{pointer-events:auto}
 
 /* ---------- overlay ---------- */
 .ov{
@@ -247,7 +255,7 @@ canvas.preview{
     <div class="top-row">
       <div class="coin-chip"><span class="c"></span><span id="homeCoins">0</span></div>
       <span class="spacer"></span>
-      <button class="btn icon-btn" id="btnSound" aria-label="おと">🔊</button>
+      <button class="btn icon-btn snd" aria-label="おと">🔊</button>
     </div>
     <div class="brand"><h1>キャッチ！</h1><span class="dot"></span></div>
     <p class="tagline">ゆびで うごかして まるを あつめよう</p>
@@ -265,6 +273,7 @@ canvas.preview{
       <h2>ステージ</h2>
       <span class="spacer"></span>
       <div class="coin-chip"><span class="c"></span><span id="lvCoins">0</span></div>
+      <button class="btn icon-btn snd" aria-label="おと">🔊</button>
     </div>
     <div class="grid" id="lvGrid"></div>
   </section>
@@ -276,6 +285,7 @@ canvas.preview{
       <h2>きせかえ</h2>
       <span class="spacer"></span>
       <div class="coin-chip"><span class="c"></span><span id="shopCoins">0</span></div>
+      <button class="btn icon-btn snd" aria-label="おと">🔊</button>
     </div>
     <div class="shop-preview">
       <canvas id="shopCv" width="208" height="208"></canvas>
@@ -296,6 +306,7 @@ canvas.preview{
       <div class="hud-row">
         <div class="hearts" id="hearts"></div>
         <div class="bar" id="timeBar"><i></i></div>
+        <button class="btn icon-btn snd" aria-label="おと">🔊</button>
         <button class="btn icon-btn" id="btnQuit" aria-label="やめる">✕</button>
       </div>
       <div class="goal">
@@ -502,7 +513,7 @@ const Bgm = (() => {
     const on = ev => {
       /* おとボタンは自前で処理する。ここで拾うと
          「pointerdown で鳴らす → click で OFF」になり、押しても無音になる */
-      if(ev && ev.target && ev.target.closest && ev.target.closest('#btnSound')) return;
+      if(ev && ev.target && ev.target.closest && ev.target.closest('.snd')) return;
       armed = false;
       document.removeEventListener('pointerdown', on);
       document.removeEventListener('keydown', on);
@@ -836,12 +847,19 @@ function refreshCoins(){
     const el = document.getElementById(id); if(el) el.textContent = state.coins;
   });
 }
+/** 4画面ぶんの おとボタンの見た目をそろえる */
+function syncSound(){
+  document.querySelectorAll('.snd').forEach(b => {
+    b.textContent = state.sound ? '🔊' : '🔇';
+    b.setAttribute('aria-label', state.sound ? 'おとを けす' : 'おとを だす');
+  });
+}
 
 /* ---------- ホーム ---------- */
 let bobT = 0, bobRAF = 0;
 function renderHome(){
   refreshCoins();
-  document.getElementById('btnSound').textContent = state.sound ? '🔊' : '🔇';
+  syncSound();
   cancelAnimationFrame(bobRAF);
   const cv = document.getElementById('homeCv');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1328,14 +1346,18 @@ document.getElementById('btnLvBack').onclick   = () => { Sfx.tap(); go('home'); 
 document.getElementById('btnShopBack').onclick = () => { Sfx.tap(); go('home'); };
 document.getElementById('btnQuit').onclick     = () => { Sfx.tap(); go('levels'); };
 document.getElementById('ovHome').onclick      = () => { Sfx.tap(); document.getElementById('ov').classList.remove('on'); go('home'); };
-document.getElementById('btnSound').onclick    = e => {
-  // 🔊 のまま まだ鳴っていない時は、OFF にせず「鳴らす」だけにする
-  if(state.sound && Bgm.kick()){ Sfx.tap(); return; }
-  state.sound = !state.sound; save();
-  e.currentTarget.textContent = state.sound ? '🔊' : '🔇';
-  Bgm.refresh();
-  if(state.sound) Sfx.tap();
-};
+/* おとボタンは4画面すべてに置いてある。どれを押しても同じ動きをして、
+   表示は全部いっしょに切りかわる */
+document.querySelectorAll('.snd').forEach(b => {
+  b.onclick = () => {
+    // 🔊 のまま まだ鳴っていない時は、OFF にせず「鳴らす」だけにする
+    if(state.sound && Bgm.kick()){ Sfx.tap(); return; }
+    state.sound = !state.sound; save();
+    syncSound();
+    Bgm.refresh();
+    if(state.sound) Sfx.tap();
+  };
+});
 document.querySelectorAll('.tab').forEach(t => {
   t.onclick = () => {
     document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
@@ -1390,6 +1412,7 @@ function makeIcon(){
    9. スタート
    ============================================================ */
 makeIcon();
+syncSound();
 go('home');
 </script>
 </body>
