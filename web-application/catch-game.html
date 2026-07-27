@@ -184,6 +184,38 @@ canvas.preview{
 .item.poor{opacity:.55}
 .item.shake{animation:shake .34s}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-7px)}75%{transform:translateX(7px)}}
+/* ---------- あそびかた ---------- */
+.help-body{
+  flex:1;min-height:0;overflow-y:auto;padding-bottom:10px;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+}
+.help-h{font-size:19px;margin:4px 2px 9px;color:var(--ink)}
+.help-h:not(:first-child){margin-top:20px}
+.help-row{
+  display:flex;align-items:center;gap:12px;
+  background:var(--card);border-radius:18px;padding:10px 14px;
+  box-shadow:0 4px 0 var(--line);margin-bottom:9px;
+}
+.help-row canvas{width:46px;height:46px;flex:0 0 auto}
+.help-row .t{flex:1;min-width:0}
+.help-row .t b{display:block;font-size:17px}
+/* せまい画面で折り返す時、単語のとちゅうで切らず文節の区切り（空白）で折る */
+.help-row .t span{
+  display:block;font-size:12.5px;font-weight:500;color:var(--ink-soft);margin-top:1px;
+  word-break:keep-all;overflow-wrap:break-word;
+}
+.help-row .v{
+  font-size:15px;white-space:nowrap;flex:0 0 auto;
+  background:var(--sun);color:#4A3200;border-radius:999px;padding:5px 11px;
+}
+.help-row .v.bad{background:var(--berry);color:#fff}
+.help-row .v.plain{background:var(--line);color:var(--ink)}
+.help-row .ic{
+  width:46px;height:46px;flex:0 0 auto;display:flex;
+  align-items:center;justify-content:center;gap:2px;
+}
+.help-row .ic svg{width:24px;height:24px}
+
 .shop-preview{display:flex;align-items:center;gap:14px;margin-bottom:2px}
 .shop-preview canvas{width:104px;height:104px;border-radius:24px;box-shadow:3px 5px 0 rgba(58,48,80,.13);flex:0 0 auto}
 .shop-preview .msg{font-size:15px;font-weight:500;color:var(--ink-soft);line-height:1.5}
@@ -213,6 +245,15 @@ canvas.preview{
 .goal .gbar{flex:1;height:15px;border-radius:999px;background:rgba(58,48,80,.13);overflow:hidden}
 .goal .gbar > i{display:block;height:100%;width:0;border-radius:999px;background:var(--sun);transition:width .18s ease}
 .goal .num{font-size:17px;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* いま効いている アイテムの効果 */
+.fx{display:flex;gap:7px;flex-wrap:wrap}
+.fx span{
+  font-size:14px;border-radius:999px;padding:5px 12px;color:#fff;
+  box-shadow:0 3px 0 rgba(58,48,80,.15);
+}
+.fx .s{background:#57C9A8}
+.fx .d{background:#B79BEA}
+.fx .m{background:#F2637E}
 .hud .icon-btn{background:rgba(255,255,255,.85);box-shadow:0 4px 0 rgba(58,48,80,.14)}
 /* .hud は pointer-events:none（タッチをキャンバスに通すため）なので、
    HUD 上のボタンだけ押せるように戻す。ただし「ゲーム画面が出ている時」に限定する。
@@ -268,6 +309,7 @@ canvas.preview{
     <div class="top-row">
       <div class="coin-chip"><span class="c"></span><span id="homeCoins">0</span></div>
       <span class="spacer"></span>
+      <button class="btn icon-btn" id="btnHelp" aria-label="あそびかた">？</button>
       <button class="btn icon-btn snd" aria-label="おと">🔊</button>
     </div>
     <div class="brand"><h1>キャッチ！</h1></div>
@@ -309,6 +351,17 @@ canvas.preview{
     <div class="shop-grid" id="shopGrid"></div>
   </section>
 
+  <!-- ========== HELP（あそびかた） ========== -->
+  <section class="screen" id="s-help">
+    <div class="head">
+      <button class="btn icon-btn" id="btnHelpBack" aria-label="もどる">←</button>
+      <h2>あそびかた</h2>
+      <span class="spacer"></span>
+      <button class="btn icon-btn snd" aria-label="おと">🔊</button>
+    </div>
+    <div class="help-body" id="helpBody"></div>
+  </section>
+
   <!-- ========== GAME ========== -->
   <section class="screen" id="s-game">
     <canvas id="cv"></canvas>
@@ -319,6 +372,7 @@ canvas.preview{
         <button class="btn icon-btn snd" aria-label="おと">🔊</button>
         <button class="btn icon-btn" id="btnQuit" aria-label="やめる">✕</button>
       </div>
+      <div class="fx" id="fxRow" hidden></div>
       <div class="goal">
         <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 5.9 6.5.95-4.7 4.6 1.1 6.5L12 17.5 6.2 20.55l1.1-6.5-4.7-4.6 6.5-.95z" fill="#FFC24B" stroke="#E39D14" stroke-width="1.6" stroke-linejoin="round"/></svg>
         <div class="gbar"><i id="goalFill"></i></div>
@@ -365,7 +419,7 @@ const Store = (() => {
 /* ============================================================
    1. データ
    ============================================================ */
-const MAX_LEVEL = 12;
+const MAX_LEVEL = 20;
 
 /** ぼうし。
     draw(c,x,y,w,col) = からだの手前に描く。
@@ -623,19 +677,29 @@ const itemOf  = (key, id) => CAT[key].find(v => v.id === id) || CAT[key][0];
 function levelParams(n, assist){
   const t = n - 1;
   let p = {
-    goal:  5 + Math.round(t * 3),
-    time:  45,
-    speed: 0.26 + t * 0.022,
-    spawn: 1.20 - t * 0.052,
-    bad:   n <= 2 ? 0 : Math.min(0.34, 0.08 + (t - 2) * 0.028),
-    special: n >= 5
+    // 後半は もちじかん も すこし短くして、あせりを出す
+    time:  Math.round(45 - Math.max(0, t - 9) * 0.55),
+    speed: 0.28 + t * 0.0185,
+    spawn: 1.10 - t * 0.029,
+    bad:   n <= 2 ? 0 : Math.min(0.36, 0.09 + (t - 2) * 0.017),
+    // ---- じゃま（上級ステージだけ） ----
+    wind:  n >= 13 ? Math.min(0.10, 0.045 + (n - 13) * 0.008) : 0,  // よこにながされる
+    clouds: n >= 16 ? Math.min(3, 1 + Math.floor((n - 16) / 2)) : 0, // くもで かくれる
+    burst: n >= 19 ? 0.28 : 0                                        // まとめて おちてくる確率
   };
-  // 3回つまずいたら、こっそりやさしくする（画面には出さない）
   if(assist){
-    p.speed *= 0.84;
-    p.bad   *= 0.55;
-    p.goal   = Math.max(4, Math.round(p.goal * 0.82));
+    // 3回つまずいたら、こっそりやさしくする（画面には出さない）
+    p.speed *= 0.82;
+    p.bad   *= 0.50;
+    p.wind  *= 0.5;
+    p.clouds = Math.max(0, p.clouds - 1);
+    p.burst  = 0;
   }
+  // 目標てんは「全部とれた時の点」の何割かで決める。
+  // こうしておくと、アイテムを足しても難易度が勝手に壊れない。
+  const avail = p.time * ((1 - p.bad) / p.spawn) * ptsPerGood(n);
+  const need  = Math.min(0.86, 0.16 + t * 0.037);
+  p.goal = Math.max(5, Math.round(avail * need * (assist ? 0.78 : 1)));
   return p;
 }
 
@@ -934,40 +998,128 @@ function drawChar(c, x, y, w, o){
 
 /* ---------- アイテム ---------- */
 const ITEM_COLORS = ['#57C9A8','#8FD3F4','#FFA7B8','#FFD85E','#B79BEA'];
-function drawItem(c, it, R){
-  const x = it.x, y = it.y;
-  if(it.type === 'bad'){
-    c.save(); c.translate(x, y); c.rotate(it.spin);
-    cut(c, cc => {
-      const a = R * .34, b = R * .95;
-      cc.moveTo(-a, -b); cc.lineTo(0, -a * .8); cc.lineTo(a, -b); cc.lineTo(b, -a);
-      cc.lineTo(a * .8, 0); cc.lineTo(b, a); cc.lineTo(a, b); cc.lineTo(0, a * .8);
-      cc.lineTo(-a, b); cc.lineTo(-b, a); cc.lineTo(-a * .8, 0); cc.lineTo(-b, -a);
-      cc.closePath();
-    }, '#F2637E', 2, 3);
-    c.restore();
-  } else if(it.type === 'star'){
-    cut(c, cc => starPath(cc, x, y, R * 1.12, R * .48, 5, -Math.PI / 2 + it.spin * .25), '#FFC24B', 2, 3);
-    c.fillStyle = 'rgba(255,255,255,.6)';
-    c.beginPath(); c.arc(x - R * .18, y - R * .22, R * .17, 0, 7); c.fill();
-  } else if(it.type === 'coin'){
-    cut(c, cc => cc.arc(x, y, R * .88, 0, 7), '#FFC24B', 2, 3);
-    c.fillStyle = '#E39D14';
-    c.beginPath(); c.arc(x, y, R * .55, 0, 7); c.fill();
-    c.fillStyle = '#FFD97A';
-    c.beginPath(); c.arc(x, y, R * .38, 0, 7); c.fill();
-  } else if(it.type === 'slow'){
-    cut(c, cc => cc.arc(x, y, R * .92, 0, 7), '#B79BEA', 2, 3);
-    c.fillStyle = '#FFFDFA';
-    c.beginPath(); c.arc(x, y, R * .62, 0, 7); c.fill();
-    c.strokeStyle = '#6E5AA0'; c.lineWidth = R * .14; c.lineCap = 'round';
-    c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - R * .42); c.moveTo(x, y); c.lineTo(x + R * .3, y + R * .1); c.stroke();
-  } else {
-    cut(c, cc => cc.arc(x, y, R * .9, 0, 7), it.color, 2, 3);
-    c.fillStyle = 'rgba(255,255,255,.55)';
-    c.beginPath(); c.arc(x - R * .26, y - R * .28, R * .26, 0, 7); c.fill();
-  }
+
+/* ------------------------------------------------------------
+   おちてくるもの。
+   アイテムを足したいときは、この配列に1件足すだけでよい。
+   出やすさ・見た目・効果・説明書の文言が すべてここに乗っている。
+     weight : でやすさ（わるいもの以外の中での重み）
+     from   : このステージ番号から でてくる
+     pts    : とった時の てん（効果だけのものは 0）
+     hit()  : てん以外の効果。ふきだしに出す文字を返す
+   ------------------------------------------------------------ */
+const FX = { x2: 8, magnet: 6 };            // 効果の つづく びょうすう
+const now = () => performance.now() / 1000;
+
+const ITEMS = [
+  { id:'maru', name:'まる', weight:62, from:1, pts:1, badge:'+1', note:'いろは いろいろ',
+    draw(c, x, y, R, it){
+      cut(c, cc => cc.arc(x, y, R * .9, 0, 7), it.color || ITEM_COLORS[0], 2, 3);
+      c.fillStyle = 'rgba(255,255,255,.55)';
+      c.beginPath(); c.arc(x - R * .26, y - R * .28, R * .26, 0, 7); c.fill();
+    } },
+
+  { id:'star', name:'ほし', weight:16, from:1, pts:3, badge:'+3', note:'まる 3こぶん！',
+    draw(c, x, y, R, it){
+      cut(c, cc => starPath(cc, x, y, R * 1.12, R * .48, 5, -Math.PI / 2 + (it.spin || 0) * .25), '#FFC24B', 2, 3);
+      c.fillStyle = 'rgba(255,255,255,.6)';
+      c.beginPath(); c.arc(x - R * .18, y - R * .22, R * .17, 0, 7); c.fill();
+    } },
+
+  { id:'coin', name:'コイン', weight:9, from:1, pts:0, badge:'コイン+3', note:'きせかえに つかえる',
+    draw(c, x, y, R){
+      cut(c, cc => cc.arc(x, y, R * .88, 0, 7), '#FFC24B', 2, 3);
+      c.fillStyle = '#E39D14'; c.beginPath(); c.arc(x, y, R * .55, 0, 7); c.fill();
+      c.fillStyle = '#FFD97A'; c.beginPath(); c.arc(x, y, R * .38, 0, 7); c.fill();
+    },
+    hit(){ G.coinsGot += 3; Sfx.coin(); return '+3'; } },
+
+  { id:'heart', name:'ハート', weight:4, from:5, pts:0, badge:'ハート+1', note:'ハートが 1つ もどる',
+    draw(c, x, y, R){
+      cut(c, cc => {
+        const s = R * 1.12;
+        cc.moveTo(x, y + s * .82);
+        cc.bezierCurveTo(x - s * 1.3, y - s * .1, x - s * .52, y - s * 1.0, x, y - s * .3);
+        cc.bezierCurveTo(x + s * .52, y - s * 1.0, x + s * 1.3, y - s * .1, x, y + s * .82);
+        cc.closePath();
+      }, '#FF8FA8', 2, 3);
+      c.fillStyle = 'rgba(255,255,255,.6)';
+      c.beginPath(); c.arc(x - R * .34, y - R * .3, R * .2, 0, 7); c.fill();
+    },
+    hit(){
+      if(G.lives < 3){ G.lives++; Sfx.star(); return 'ハート+1'; }
+      G.score += 2; Sfx.star(); return '+2';   // まんタンなら てん に かえる（ムダにしない）
+    } },
+
+  { id:'shield', name:'バリア', weight:4, from:5, pts:0, badge:'バツを 1かい ふせぐ', note:'つぎの バツを ふせぐ',
+    draw(c, x, y, R){
+      cut(c, cc => {
+        const w = R * .82, h = R * .95;
+        cc.moveTo(x - w, y - h * .72);
+        cc.lineTo(x + w, y - h * .72);
+        cc.lineTo(x + w, y + h * .1);
+        cc.quadraticCurveTo(x + w * .9, y + h, x, y + h);
+        cc.quadraticCurveTo(x - w * .9, y + h, x - w, y + h * .1);
+        cc.closePath();
+      }, '#57C9A8', 2, 3);
+      c.strokeStyle = '#FFFDFA'; c.lineWidth = R * .17; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(x - R * .3, y); c.lineTo(x - R * .05, y + R * .28);
+      c.lineTo(x + R * .35, y - R * .3); c.stroke();
+    },
+    hit(){ G.shield = true; Sfx.star(); updateHud(); return 'バリア！'; } },
+
+  { id:'x2', name:'2ばい', weight:3, from:5, pts:0, badge:FX.x2 + 'びょう てん2ばい', note:'てんが 2ばいに なる',
+    draw(c, x, y, R){
+      cut(c, cc => rr(cc, x - R * .92, y - R * .82, R * 1.84, R * 1.64, R * .5), '#B79BEA', 2, 3);
+      c.fillStyle = '#FFFDFA'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = '800 ' + (R * .95).toFixed(1) + 'px "M PLUS Rounded 1c", sans-serif';
+      c.fillText('×2', x, y + R * .04);
+    },
+    hit(){ G.x2Until = now() + FX.x2; Sfx.star(); updateHud(); return '2ばい！'; } },
+
+  { id:'magnet', name:'マグネット', weight:2, from:5, pts:0, badge:FX.magnet + 'びょう ひきよせる', note:'まるが よってくる',
+    draw(c, x, y, R){
+      c.save(); c.translate(x, y);
+      c.lineCap = 'butt';
+      const rr2 = R * .62, lw = R * .56;
+      // U字のじしゃく（かげ → 本体 → 足）
+      c.strokeStyle = 'rgba(58,48,80,.15)'; c.lineWidth = lw;
+      c.beginPath(); c.arc(2, 3 - R * .16, rr2, Math.PI, 0); c.stroke();
+      c.strokeStyle = '#F2637E'; c.lineWidth = lw;
+      c.beginPath(); c.arc(0, -R * .16, rr2, Math.PI, 0); c.stroke();
+      c.strokeStyle = '#AEB8C4';
+      [-1, 1].forEach(s => {
+        c.beginPath();
+        c.moveTo(s * rr2, -R * .16); c.lineTo(s * rr2, R * .58);
+        c.stroke();
+      });
+      c.restore();
+    },
+    hit(){ G.magnetUntil = now() + FX.magnet; Sfx.star(); updateHud(); return 'ひきよせ！'; } },
+
+  { id:'bad', name:'バツ', bad:true, from:3, badge:'ハート−1', note:'とっちゃ だめ！',
+    draw(c, x, y, R, it){
+      c.save(); c.translate(x, y); c.rotate(it.spin || 0);
+      cut(c, cc => {
+        const a = R * .34, b = R * .95;
+        cc.moveTo(-a, -b); cc.lineTo(0, -a * .8); cc.lineTo(a, -b); cc.lineTo(b, -a);
+        cc.lineTo(a * .8, 0); cc.lineTo(b, a); cc.lineTo(a, b); cc.lineTo(0, a * .8);
+        cc.lineTo(-a, b); cc.lineTo(-b, a); cc.lineTo(-a * .8, 0); cc.lineTo(-b, -a);
+        cc.closePath();
+      }, '#F2637E', 2, 3);
+      c.restore();
+    } }
+];
+
+const itemDef  = id => ITEMS.find(i => i.id === id) || ITEMS[0];
+const goodPool = n => ITEMS.filter(i => !i.bad && i.from <= n);
+/** そのステージで「良いもの1個あたり」に期待できるてん。目標てんの計算に使う */
+function ptsPerGood(n){
+  const pool = goodPool(n);
+  const tot = pool.reduce((s, i) => s + i.weight, 0);
+  return pool.reduce((s, i) => s + i.weight * (i.pts || 0), 0) / tot;
 }
+function drawItem(c, it, R){ itemDef(it.type).draw(c, it.x, it.y, R, it); }
 
 /* ============================================================
    5. 画面きりかえ
@@ -976,6 +1128,7 @@ const screens = {
   home:   document.getElementById('s-home'),
   levels: document.getElementById('s-levels'),
   shop:   document.getElementById('s-shop'),
+  help:   document.getElementById('s-help'),
   game:   document.getElementById('s-game')
 };
 let current = 'home';
@@ -987,6 +1140,7 @@ function go(name){
   if(name === 'home')   renderHome();
   if(name === 'levels') renderLevels();
   if(name === 'shop')   renderShop();
+  if(name === 'help')   renderHelp();
 }
 function refreshCoins(){
   ['homeCoins','lvCoins','shopCoins'].forEach(id => {
@@ -1055,6 +1209,73 @@ function renderLevels(){
     b.onclick = () => { Sfx.tap(); startGame(n); };
     g.appendChild(b);
   }
+}
+
+/* ---------- あそびかた ---------- */
+/** 落ちてくるものの説明。アイテムを足したらここにも1件足す。
+    絵はゲーム本編と同じ drawItem() で描くので、見た目がズレない。 */
+/** 上級ステージの じゃま。ステージ番号は levelParams と合わせる */
+const HAZARDS = [
+  { from:13, name:'かぜ',  note:'よこに ながされる',       val:'ステージ13〜' },
+  { from:16, name:'くも',  note:'くもで かくれて 見えにくい', val:'ステージ16〜' },
+  { from:19, name:'むれ',  note:'まとめて おちてくる',      val:'ステージ19〜' }
+];
+
+const HEART_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.4-4.6-9.3-9.1C1.2 8.1 3.4 4.5 7 4.5c2 0 3.6 1.1 5 3 1.4-1.9 3-3 5-3 3.6 0 5.8 3.6 4.3 7.4C19.4 16.4 12 21 12 21z" fill="#F2637E" stroke="#CE4260" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+
+function renderHelp(){
+  const box = document.getElementById('helpBody');
+  if(box.childElementCount) return;          // 中身は変わらないので1回だけ作る
+
+  const head = t => { const h = document.createElement('div'); h.className = 'help-h'; h.textContent = t; box.appendChild(h); };
+  /** icon は canvas に描くか、HTML文字列を入れるか */
+  const row = (icon, name, note, val, cls) => {
+    const r = document.createElement('div'); r.className = 'help-row';
+    if(typeof icon === 'string'){
+      const d = document.createElement('div'); d.className = 'ic'; d.innerHTML = icon; r.appendChild(d);
+    } else {
+      const cv = document.createElement('canvas'); r.appendChild(cv);
+      requestAnimationFrame(() => {
+        const dpr = 2, S = 46;
+        cv.width = S * dpr; cv.height = S * dpr;
+        const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+        drawItem(c, { type:icon.type, x:S / 2, y:S / 2, spin:0, color:ITEM_COLORS[0] }, S * .36);
+      });
+    }
+    const t = document.createElement('div'); t.className = 't';
+    const b = document.createElement('b'); b.textContent = name; t.appendChild(b);
+    const s = document.createElement('span'); s.textContent = note; t.appendChild(s);
+    r.appendChild(t);
+    const v = document.createElement('span'); v.className = 'v' + (cls ? ' ' + cls : '');
+    v.textContent = val; r.appendChild(v);
+    box.appendChild(r);
+  };
+
+  // 説明書は ITEMS から自動で作る。アイテムを足せば ここにも出る
+  head('てんに なるもの');
+  ITEMS.filter(i => !i.bad && i.pts).forEach(i => row({ type:i.id }, i.name, i.note, i.badge));
+
+  head('とくべつな もの');
+  ITEMS.filter(i => !i.bad && !i.pts).forEach(i =>
+    row({ type:i.id }, i.name, i.note, i.badge, i.from > 1 ? 'plain' : ''));
+
+  head('きけんな もの');
+  ITEMS.filter(i => i.bad).forEach(i => row({ type:i.id }, i.name, i.note, i.badge, 'bad'));
+
+  head('じょうきゅう ステージの じゃま');
+  HAZARDS.forEach(h => row(
+    '<svg viewBox="0 0 24 24"><path d="M3 9h11a3 3 0 1 0-3-3M3 14h14a3 3 0 1 1-3 3" fill="none" stroke="#7E7199" stroke-width="2.2" stroke-linecap="round"/></svg>',
+    h.name, h.note, h.val, 'plain'));
+
+  head('ルール');
+  row(HEART_SVG.repeat(3), 'ハート',
+      'バツで へる。0で おしまい', '3こ', 'plain');
+  row('<svg viewBox="0 0 24 24"><path d="M12 2.6l2.9 5.9 6.5.95-4.7 4.6 1.1 6.5L12 17.5 6.2 20.55l1.1-6.5-4.7-4.6 6.5-.95z" fill="#FFC24B" stroke="#E39D14" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+      'ほしの かず', 'のこった ハートの かず', '★1〜3', 'plain');
+  row('<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="#57C9A8" stroke-width="2.4"/><path d="M12 6.5V12l3.5 2.2" fill="none" stroke="#57C9A8" stroke-width="2.4" stroke-linecap="round"/></svg>',
+      'じかん', 'てんが たまれば すぐ クリア', '45びょう', 'plain');
+  row('<svg viewBox="0 0 24 24"><path d="M6 7l12 10M18 7L6 17" stroke="#7E7199" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>',
+      'とりのがし', 'へらないので あせらなくて OK', 'セーフ', 'plain');
 }
 
 /* ---------- きせかえ ---------- */
@@ -1155,7 +1376,10 @@ const G = {
   charX:0, targetX:0,
   items:[], pops:[],
   score:0, lives:3, time:0,
-  spawnT:0, slowUntil:0, hurtUntil:0,
+  spawnT:0, hurtUntil:0,
+  shield:false, x2Until:0, magnetUntil:0,    // アイテムの効果
+  fxT:0, fxOn:false,                         // 効果表示の更新用
+  windPhase:0, clouds:[],                    // じゃま
   countdown:0, coinsGot:0,
   startedMoving:false, ended:false
 };
@@ -1185,7 +1409,19 @@ function startGame(n){
   resize();
   G.items = []; G.pops = [];
   G.score = 0; G.lives = 3; G.time = G.params.time;
-  G.spawnT = 0; G.slowUntil = 0; G.hurtUntil = 0;
+  G.spawnT = 0; G.hurtUntil = 0;
+  G.shield = false; G.x2Until = 0; G.magnetUntil = 0;
+  G.windPhase = Math.random() * 6.28;
+  G.clouds = [];
+  for(let i = 0; i < G.params.clouds; i++){
+    const dir = i % 2 ? 1 : -1;
+    G.clouds.push({
+      x: G.W * (i + .5) / Math.max(1, G.params.clouds),
+      y: cloudY(),
+      r: G.W * (.11 + Math.random() * .04),
+      vx: dir * (.035 + Math.random() * .025)
+    });
+  }
   G.coinsGot = 0; G.ended = false;
   G.startedMoving = false;
   G.countdown = 2.0;
@@ -1219,21 +1455,19 @@ addEventListener('keydown', e => {
 });
 
 /* ---------- スポーン ---------- */
-function spawn(){
+/** そのステージで でてくる ものから、重みつきで1つ選ぶ */
+function pickType(){
   const p = G.params;
-  const R = itemR();
-  const pad = R * 1.6;
-  let type;
-  if(Math.random() < p.bad) type = 'bad';
-  else {
-    const q = Math.random();
-    if(p.special && q < .07) type = 'slow';
-    else if(q < .16) type = 'coin';
-    else if(q < .32) type = 'star';
-    else type = 'maru';
-  }
+  if(Math.random() < p.bad) return 'bad';
+  const pool = goodPool(G.level);
+  let r = Math.random() * pool.reduce((s, i) => s + i.weight, 0);
+  for(const i of pool){ r -= i.weight; if(r <= 0) return i.id; }
+  return pool[0].id;
+}
+function spawnOne(){
+  const p = G.params, R = itemR(), pad = R * 1.6;
   G.items.push({
-    type:type,
+    type: pickType(),
     x: pad + Math.random() * (G.W - pad * 2),
     y: -R * 1.4,
     vy: p.speed * G.H * (.92 + Math.random() * .16),
@@ -1241,7 +1475,14 @@ function spawn(){
     color: ITEM_COLORS[(Math.random() * ITEM_COLORS.length) | 0]
   });
 }
+function spawn(){
+  // じゃま「むれ」: たまに まとめて おちてくる
+  const n = (G.params.burst && Math.random() < G.params.burst) ? 3 : 1;
+  for(let i = 0; i < n; i++) spawnOne();
+}
 function itemR(){ return Math.max(13, Math.min(25, G.W * .053)); }
+/** じゃまのくもが うかぶ たかさ。HUD と かごの あいだに おさめる */
+function cloudY(){ return G.H * (.30 + Math.random() * .26); }
 
 /* ---------- ループ ---------- */
 function tick(now){
@@ -1269,15 +1510,30 @@ function update(dt){
   G.spawnT -= dt;
   if(G.spawnT <= 0){ spawn(); G.spawnT = G.params.spawn * (.85 + Math.random() * .3); }
 
-  const slow = performance.now() / 1000 < G.slowUntil ? .5 : 1;
+  const t = now();
+  const magnet = t < G.magnetUntil;
+
+  // 効果の のこり秒を出すため、効果中は こまめに HUD を更新する
+  const anyFx = G.shield || t < G.x2Until || magnet;
+  if((anyFx || G.fxOn) && t - G.fxT > .2){ G.fxT = t; G.fxOn = anyFx; updateHud(); }
+  // じゃま「かぜ」: ゆっくり むきが かわる横風
+  G.windPhase += dt * .45;
+  const wind = G.params.wind ? Math.sin(G.windPhase) * G.params.wind * G.W : 0;
 
   for(let i = G.items.length - 1; i >= 0; i--){
     const it = G.items[i];
     const prevBottom = it.y + R;
-    it.y += it.vy * slow * dt;
+    it.y += it.vy * dt;
     it.spin += dt * 1.6;
-    const bottom = it.y + R;
 
+    if(wind) it.x += wind * dt;
+    // マグネット: 良いものだけ よこから よってくる
+    if(magnet && !itemDef(it.type).bad){
+      it.x += (G.charX - it.x) * Math.min(1, dt * 2.6);
+    }
+    it.x = Math.max(R * .6, Math.min(G.W - R * .6, it.x));
+
+    const bottom = it.y + R;
     // かごを通過した瞬間だけ判定（すり抜け防止）
     const inX = Math.abs(it.x - G.charX) <= m.bw / 2 + R * .45;
     if(inX && prevBottom < m.catch && bottom >= m.catch){
@@ -1286,6 +1542,13 @@ function update(dt){
       continue;
     }
     if(it.y - R > G.H + 20) G.items.splice(i, 1);   // とりのがしても ペナルティなし
+  }
+
+  // じゃま「くも」: 画面を よこぎって おちてくるものを かくす
+  for(const cl of G.clouds){
+    cl.x += cl.vx * dt * G.W;
+    if(cl.vx > 0 && cl.x - cl.r * 2 > G.W) { cl.x = -cl.r * 2; cl.y = cloudY(); }
+    if(cl.vx < 0 && cl.x + cl.r * 2 < 0)   { cl.x = G.W + cl.r * 2; cl.y = cloudY(); }
   }
 
   for(let i = G.pops.length - 1; i >= 0; i--){
@@ -1297,9 +1560,18 @@ function update(dt){
 
 function onCatch(it, m){
   const px = it.x, py = m.catch - 10;
-  if(it.type === 'bad'){
+  const def = itemDef(it.type);
+
+  if(def.bad){
+    if(G.shield){                      // バリアが 1かい ふせぐ
+      G.shield = false;
+      Sfx.slow();
+      G.pops.push({ x:px, y:py, t:0, txt:'まもった！' });
+      updateHud();
+      return;
+    }
     G.lives--;
-    G.hurtUntil = performance.now() / 1000 + .7;
+    G.hurtUntil = now() + .7;
     Sfx.hit();
     G.pops.push({ x:px, y:py, t:0, txt:'', bad:true });
     if(navigator.vibrate) try { navigator.vibrate(40); } catch(e){}
@@ -1307,18 +1579,17 @@ function onCatch(it, m){
     if(G.lives <= 0){ finish(false); }
     return;
   }
-  if(it.type === 'coin'){
-    G.coinsGot += 3; Sfx.coin();
-    G.pops.push({ x:px, y:py, t:0, txt:'+3', coin:true });
-  } else if(it.type === 'slow'){
-    G.slowUntil = performance.now() / 1000 + 4; Sfx.slow();
-    G.pops.push({ x:px, y:py, t:0, txt:'ゆっくり' });
-  } else {
-    const v = it.type === 'star' ? 3 : 1;
+
+  let txt = '';
+  if(def.pts){
+    const v = def.pts * (now() < G.x2Until ? 2 : 1);   // 2ばい中は てんが 2ばい
     G.score += v;
-    it.type === 'star' ? Sfx.star() : Sfx.catch_();
-    G.pops.push({ x:px, y:py, t:0, txt:'+' + v });
+    txt = '+' + v;
+    def.id === 'star' ? Sfx.star() : Sfx.catch_();
   }
+  if(def.hit) txt = def.hit() || txt;
+  G.pops.push({ x:px, y:py, t:0, txt:txt, coin:def.id === 'coin' });
+
   updateHud();
   if(G.score >= G.params.goal) finish(true);
 }
@@ -1341,6 +1612,15 @@ function updateHud(){
   const goal = G.params ? G.params.goal : 1;
   document.getElementById('goalFill').style.width = Math.min(100, G.score / goal * 100) + '%';
   document.getElementById('goalNum').textContent = Math.min(G.score, goal) + ' / ' + goal;
+
+  // いま効いている効果を出す（何が起きているか わかるように）
+  const fx = document.getElementById('fxRow');
+  const t = now(), on = [];
+  if(G.shield)         on.push(['s', 'バリア']);
+  if(t < G.x2Until)    on.push(['d', '×2 ' + Math.ceil(G.x2Until - t)]);
+  if(t < G.magnetUntil)on.push(['m', 'ひきよせ ' + Math.ceil(G.magnetUntil - t)]);
+  fx.hidden = on.length === 0;
+  fx.innerHTML = on.map(o => '<span class="' + o[0] + '">' + o[1] + '</span>').join('');
 }
 
 /* ---------- 描画 ---------- */
@@ -1364,7 +1644,36 @@ function render(t){
   const shake = hurt ? Math.sin(t * 60) * 3 : 0;
   cx.save(); cx.translate(shake, 0);
   drawChar(cx, G.charX, m.top, m.w, { mood: hurt ? 'sad' : (G.score >= (G.params ? G.params.goal : 1) ? 'happy' : 'normal') });
+  // バリア中は キャラを わっかで囲む
+  if(G.shield){
+    cx.strokeStyle = 'rgba(87,201,168,.85)';
+    cx.lineWidth = Math.max(3, m.w * .06);
+    cx.beginPath();
+    cx.ellipse(G.charX, m.top + m.h * .52, m.w * .82, m.h * .95, 0, 0, 7);
+    cx.stroke();
+  }
+  // マグネット中は ひきよせている感じを出す
+  if(t < G.magnetUntil){
+    cx.strokeStyle = 'rgba(242,99,126,.35)';
+    cx.lineWidth = 3;
+    for(let i = 1; i <= 2; i++){
+      const rr2 = m.w * (.9 + i * .45) + Math.sin(t * 4 + i) * 4;
+      cx.beginPath(); cx.arc(G.charX, m.catch, rr2, Math.PI * 1.12, Math.PI * 1.88); cx.stroke();
+    }
+  }
   cx.restore();
+
+  // じゃま「くも」: おちてくるものの手前に描いて かくす
+  G.clouds.forEach(cl => {
+    // 完全には隠さない。うっすら影が見えるので「そこに何かある」は分かる
+    cx.globalAlpha = .80;
+    cut(cx, c => {
+      c.arc(cl.x, cl.y, cl.r, 0, 7);
+      c.arc(cl.x + cl.r * .85, cl.y + cl.r * .18, cl.r * .68, 0, 7);
+      c.arc(cl.x - cl.r * .8, cl.y + cl.r * .22, cl.r * .6, 0, 7);
+    }, '#FFFFFF', 0, 0);
+    cx.globalAlpha = 1;
+  });
 
   // ふきだし（+1 など）
   G.pops.forEach(p => {
@@ -1503,6 +1812,8 @@ document.getElementById('btnPlay').onclick     = () => { Sfx.unlock(); Sfx.tap()
 document.getElementById('btnShop').onclick     = () => { Sfx.tap(); go('shop'); };
 document.getElementById('btnLvBack').onclick   = () => { Sfx.tap(); go('home'); };
 document.getElementById('btnShopBack').onclick = () => { Sfx.tap(); go('home'); };
+document.getElementById('btnHelp').onclick     = () => { Sfx.tap(); go('help'); };
+document.getElementById('btnHelpBack').onclick = () => { Sfx.tap(); go('home'); };
 document.getElementById('btnQuit').onclick     = () => { Sfx.tap(); go('levels'); };
 document.getElementById('ovHome').onclick      = () => { Sfx.tap(); document.getElementById('ov').classList.remove('on'); go('home'); };
 /* おとボタンは4画面すべてに置いてある。どれを押しても同じ動きをして、
