@@ -148,10 +148,17 @@ canvas.preview{
 .head .icon-btn,.head .coin-chip{flex:0 0 auto}
 .head .spacer{min-width:0}
 .grid{
-  flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;
-  overflow-y:auto;align-content:safe center;padding:4px 0 8px;
-  -webkit-overflow-scrolling:touch;
+  /* 30ステージあるので、中央よせではなく上づめ＋スクロールにする */
+  flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;
+  overflow-y:auto;align-content:start;padding:4px 0 8px;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
 }
+/* むずかしさの区分け見出し（3列ぶち抜き） */
+.grid .tier{grid-column:1/-1;display:flex;align-items:center;gap:9px;margin-top:6px}
+.grid .tier:first-child{margin-top:0}
+.grid .tier b{font-size:17px}
+.grid .tier span{font-size:12.5px;font-weight:500;color:var(--ink-soft)}
+.grid .tier i{flex:1;height:3px;border-radius:2px;background:var(--line)}
 .tile{
   background:var(--card);border:none;border-radius:20px;
   box-shadow:0 5px 0 var(--line);
@@ -454,7 +461,15 @@ const Store = (() => {
 /* ============================================================
    1. データ
    ============================================================ */
-const MAX_LEVEL = 20;
+const MAX_LEVEL = 30;
+
+/** ステージの区分け。ステージ選択の見出しに使う。
+    幅がひろいので、どこが自分向けか わかるようにしておく */
+const TIERS = [
+  { from:1,  name:'やさしい',   note:'はじめて〜' },
+  { from:11, name:'ふつう',     note:'なれてきたら' },
+  { from:21, name:'むずかしい', note:'ゲームずき むけ' }
+];
 
 /** ぼうし。
     draw(c,x,y,w,col) = からだの手前に描く。
@@ -710,30 +725,38 @@ const itemOf  = (key, id) => CAT[key].find(v => v.id === id) || CAT[key][0];
  *  落下速度は「画面の高さの何割 / 秒」で定義しているので、
  *  端末の画面サイズが変わっても体感難易度が変わらない。 */
 function levelParams(n, assist){
-  const t = n - 1;
+  const t  = n - 1;
+  const ex = Math.max(0, n - 20);   // 「むずかしい」帯で どれだけ上か
   let p = {
-    // 後半は もちじかん も すこし短くして、あせりを出す
-    time:  Math.round(45 - Math.max(0, t - 9) * 0.55),
-    speed: 0.28 + t * 0.0185,
-    spawn: 1.10 - t * 0.029,
-    bad:   n <= 2 ? 0 : Math.min(0.36, 0.09 + (t - 2) * 0.017),
-    // ---- じゃま（上級ステージだけ） ----
-    wind:  n >= 13 ? Math.min(0.10, 0.045 + (n - 13) * 0.008) : 0,  // よこにながされる
-    clouds: n >= 16 ? Math.min(3, 1 + Math.floor((n - 16) / 2)) : 0, // くもで かくれる
-    burst: n >= 19 ? 0.28 : 0                                        // まとめて おちてくる確率
+    // 後半は もちじかん も 短くして、あせりを出す
+    time:  Math.round(45 - Math.max(0, t - 9) * 0.55 - ex * 0.4),
+    speed: 0.28 + Math.min(t, 19) * 0.0185 + ex * 0.018,
+    spawn: 1.10 - Math.min(t, 19) * 0.029 - ex * 0.021,
+    bad:   n <= 2 ? 0 : Math.min(0.36 + ex * 0.006, 0.09 + (t - 2) * 0.017),
+    // ---- じゃま ----
+    wind:   n >= 13 ? Math.min(0.16, 0.045 + (n - 13) * 0.008) : 0,  // よこに ながされる
+    clouds: n >= 16 ? Math.min(4, 1 + Math.floor((n - 16) / 2)) : 0, // くもで かくれる
+    burst:  n >= 19 ? Math.min(0.42, 0.28 + ex * 0.015) : 0,         // まとめて おちてくる
+    // ---- 「むずかしい」帯だけ。速さではなく“正確さ”を要求する ----
+    basket: Math.max(0.62, 1 - ex * 0.038),                          // かごが せまくなる
+    homing: n >= 24 ? Math.min(0.45, 0.15 + (n - 24) * 0.05) : 0     // バツが おいかけてくる
   };
   if(assist){
     // 3回つまずいたら、こっそりやさしくする（画面には出さない）
-    p.speed *= 0.82;
-    p.bad   *= 0.50;
-    p.wind  *= 0.5;
-    p.clouds = Math.max(0, p.clouds - 1);
-    p.burst  = 0;
+    p.speed  *= 0.82;
+    p.bad    *= 0.50;
+    p.wind   *= 0.5;
+    p.clouds  = Math.max(0, p.clouds - 1);
+    p.burst   = 0;
+    p.homing *= 0.40;
+    p.basket  = Math.min(1, p.basket + 0.14);
   }
   // 目標てんは「全部とれた時の点」の何割かで決める。
   // こうしておくと、アイテムを足しても難易度が勝手に壊れない。
+  // 21以降は この割合を上げず、かごの狭さ・追尾で難しくしている
+  // （計算で詰ませるのではなく、腕前で差がつくようにするため）
   const avail = p.time * ((1 - p.bad) / p.spawn) * ptsPerGood(n);
-  const need  = Math.min(0.86, 0.16 + t * 0.037);
+  const need  = n <= 20 ? Math.min(0.86, 0.16 + t * 0.037) : 0.86;
   p.goal = Math.max(5, Math.round(avail * need * (assist ? 0.78 : 1)));
   return p;
 }
@@ -1020,8 +1043,10 @@ function drawChar(c, x, y, w, o){
   else                      c.arc(x, y + h * .52 + fy, w * .09, Math.PI * .15, Math.PI * .85);
   c.stroke();
 
-  // かご（キャッチする場所）
-  const bw = w * 1.2, bh = w * .32, bt = y + h * .70;
+  // かご（キャッチする場所）。上級ステージでは せまくなる。
+  // 見た目と当たり判定が ずれないよう、charMetrics と同じ計算にすること
+  const bs = o.basket === undefined ? 1 : o.basket;
+  const bw = w * 1.2 * bs, bh = w * .32, bt = y + h * .70;
   cut(c, cc => rr(cc, x - bw / 2, bt, bw, bh, w * .11), '#F0C48D', 3, 4);
   c.fillStyle = '#DBA466';
   c.beginPath(); rr(c, x - bw / 2, bt, bw, bh * .34, w * .09); c.fill();
@@ -1235,6 +1260,14 @@ function renderLevels(){
   let next = 0;
   for(let n = 1; n <= MAX_LEVEL; n++){ if(!state.stars[n]){ next = n; break; } }
   for(let n = 1; n <= MAX_LEVEL; n++){
+    // 区分けの見出し。むずかしさの幅がひろいので目安を出す
+    const tier = TIERS.find(x => x.from === n);
+    if(tier){
+      const h = document.createElement('div');
+      h.className = 'tier';
+      h.innerHTML = '<b>' + tier.name + '</b><span>' + tier.note + '</span><i></i>';
+      g.appendChild(h);
+    }
     const st = state.stars[n] || 0;
     const b = document.createElement('button');
     b.className = 'tile' + (st ? ' done' : '') + (n === next ? ' next' : '');
@@ -1251,9 +1284,11 @@ function renderLevels(){
     絵はゲーム本編と同じ drawItem() で描くので、見た目がズレない。 */
 /** 上級ステージの じゃま。ステージ番号は levelParams と合わせる */
 const HAZARDS = [
-  { from:13, name:'かぜ',  note:'よこに ながされる',       val:'ステージ13〜' },
-  { from:16, name:'くも',  note:'くもで かくれて 見えにくい', val:'ステージ16〜' },
-  { from:19, name:'むれ',  note:'まとめて おちてくる',      val:'ステージ19〜' }
+  { from:13, name:'かぜ',       note:'よこに ながされる',            val:'13〜' },
+  { from:16, name:'くも',       note:'くもで かくれて 見えにくい',      val:'16〜' },
+  { from:19, name:'むれ',       note:'まとめて おちてくる',           val:'19〜' },
+  { from:21, name:'かごが せまい', note:'キャッチできる はばが 小さくなる', val:'21〜' },
+  { from:24, name:'おいかけ',    note:'バツが おいかけてくる',         val:'24〜' }
 ];
 
 const HEART_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.4-4.6-9.3-9.1C1.2 8.1 3.4 4.5 7 4.5c2 0 3.6 1.1 5 3 1.4-1.9 3-3 5-3 3.6 0 5.8 3.6 4.3 7.4C19.4 16.4 12 21 12 21z" fill="#F2637E" stroke="#CE4260" stroke-width="1.5" stroke-linejoin="round"/></svg>';
@@ -1297,7 +1332,7 @@ function renderHelp(){
   head('きけんな もの');
   ITEMS.filter(i => i.bad).forEach(i => row({ type:i.id }, i.name, i.note, i.badge, 'bad'));
 
-  head('じょうきゅう ステージの じゃま');
+  head('むずかしい ステージの じゃま');
   HAZARDS.forEach(h => row(
     '<svg viewBox="0 0 24 24"><path d="M3 9h11a3 3 0 1 0-3-3M3 14h14a3 3 0 1 1-3 3" fill="none" stroke="#7E7199" stroke-width="2.2" stroke-linecap="round"/></svg>',
     h.name, h.note, h.val, 'plain'));
@@ -1433,7 +1468,9 @@ function charMetrics(){
   const w = Math.max(56, Math.min(100, G.W * .21));
   const h = w * CHAR_RATIO;   // drawChar と同じ値。かたちを変えても判定は動かない
   const top = G.H * .745;                   // 画面下から約20%上 = 親指でキャラが隠れない
-  return { w:w, h:h, top:top, catch:top + h * .70, bw:w * 1.2, bh:w * .32 };
+  // かごの幅は ステージで変わる。drawChar の bw と 同じ式にしてある
+  const bs = G.params ? G.params.basket : 1;
+  return { w:w, h:h, top:top, catch:top + h * .70, bw:w * 1.2 * bs, bh:w * .32 };
 }
 
 function startGame(n){
@@ -1554,6 +1591,7 @@ function update(dt){
   // じゃま「かぜ」: ゆっくり むきが かわる横風
   G.windPhase += dt * .45;
   const wind = G.params.wind ? Math.sin(G.windPhase) * G.params.wind * G.W : 0;
+  const hom  = G.params.homing;
 
   for(let i = G.items.length - 1; i >= 0; i--){
     const it = G.items[i];
@@ -1561,11 +1599,12 @@ function update(dt){
     it.y += it.vy * dt;
     it.spin += dt * 1.6;
 
+    const isBad = itemDef(it.type).bad;
     if(wind) it.x += wind * dt;
     // マグネット: 良いものだけ よこから よってくる
-    if(magnet && !itemDef(it.type).bad){
-      it.x += (G.charX - it.x) * Math.min(1, dt * 2.6);
-    }
+    if(magnet && !isBad) it.x += (G.charX - it.x) * Math.min(1, dt * 2.6);
+    // じゃま「おいかけ」: 上級では バツが すこし よってくる（逃げれば かわせる強さ）
+    if(hom && isBad)     it.x += (G.charX - it.x) * Math.min(1, dt * hom * 3);
     it.x = Math.max(R * .6, Math.min(G.W - R * .6, it.x));
 
     const bottom = it.y + R;
@@ -1678,7 +1717,10 @@ function render(t){
   const hurt = t < G.hurtUntil;
   const shake = hurt ? Math.sin(t * 60) * 3 : 0;
   cx.save(); cx.translate(shake, 0);
-  drawChar(cx, G.charX, m.top, m.w, { mood: hurt ? 'sad' : (G.score >= (G.params ? G.params.goal : 1) ? 'happy' : 'normal') });
+  drawChar(cx, G.charX, m.top, m.w, {
+    mood: hurt ? 'sad' : (G.score >= (G.params ? G.params.goal : 1) ? 'happy' : 'normal'),
+    basket: G.params ? G.params.basket : 1
+  });
   // バリア中は キャラを わっかで囲む
   if(G.shield){
     cx.strokeStyle = 'rgba(87,201,168,.85)';
